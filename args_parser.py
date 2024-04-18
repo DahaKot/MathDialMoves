@@ -19,6 +19,12 @@ def add_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--window_size", type=int, default=3
     )
+    parser.add_argument(
+        "--train_path", type=str, default="./data/train_window_1.csv"
+    )
+    parser.add_argument(
+        "--test_path", type=str, default="./data/test_window_1.csv"
+    )
     # parser.add_argument('--save_file',
     #                         type=str,
     #                         default="outputs.txt")
