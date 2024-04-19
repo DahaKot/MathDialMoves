@@ -25,6 +25,9 @@ def add_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--test_path", type=str, default="./data/test_window_1.csv"
     )
+    parser.add_argument(
+        "--logging_dir", type=str, default="./logs/default_logs"
+    )
     # parser.add_argument('--save_file',
     #                         type=str,
     #                         default="outputs.txt")

@@ -1,32 +1,16 @@
+import os
 import random
 
+import evaluate
 import numpy as np
-import pandas as pd
 import torch
-import transformers
-from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from datasets import load_dataset
+from transformers import (RobertaForMultipleChoice,
+                          RobertaForSequenceClassification, RobertaTokenizer,
+                          Trainer, TrainingArguments,
+                          XLMRobertaForMultipleChoice, XLMRobertaTokenizer)
 
 from args_parser import get_args
-
-
-class CustomDataset(Dataset):
-    """Custom-built dataset"""
-
-    def __init__(self, X, y):
-        """
-        Args:
-            X, y as Torch tensors
-        """
-        self.X_train = X
-        self.y_train = y
-        
-
-    def __len__(self):
-        return len(self.y_train)
-
-    def __getitem__(self, idx):
-        return self.X_train[idx], self.y_train[idx]
 
 
 def set_seed(seed_value=42):
@@ -40,72 +24,38 @@ def set_seed(seed_value=42):
     torch.backends.cudnn.benchmark = False
 
 
-def load_tensors(data_path, tokenizer):
-    data = pd.read_csv(data_path)
-    data = data[["text", "label"]]
-    X = data["text"]
-    y = np.unique(data["label"], return_inverse=True)[1]
+def preprocess_function(examples):
+    texts, labels = examples["text"], examples["label"]
 
-    X_list = X.to_list()
-    X_pt = tokenizer(
-        X_list, padding='max_length', max_length=512, truncation=True,
-        return_tensors='pt'
-    )["input_ids"]
+    # Tokenize premises and choices
+    # Note that we provide both choices together as multiple_choices_inputs
+    multiple_choices_inputs = []
+    for text in texts:
+        multiple_choices_inputs.append(tokenizer.encode_plus( \
+            text, max_length=512, padding='max_length', \
+            truncation=True))
 
-    y_list = y.tolist()
-    y_pt = torch.Tensor(y_list).long()
+    # RoBERTa expects a list of all first choices and a list of all second 
+    # choices, hence we restructure the inputs
+    input_ids = [x['input_ids'] for x in multiple_choices_inputs]
+    attention_masks = [x['attention_mask'] for x in multiple_choices_inputs]
 
-    return X_pt, y_pt
+    labels = np.unique(labels, return_inverse=True)[1]
+    print(type(torch.tensor(attention_masks).view(-1, 512)), torch.tensor(attention_masks).view(-1, 512).dtype)
 
-def load_dataset(train_path, test_path, tokenizer):
-    X_train, y_train = load_tensors(train_path, tokenizer)
-    X_test, y_test = load_tensors(test_path, tokenizer)
-
-    train = CustomDataset(X=X_train, y=y_train)
-    test = CustomDataset(X=X_test, y=y_test)
-
-    return train, test
-
-
-# # Download the dataset and put it in subfolder called data
-# datapath = "train_only_dialogue_window_1.csv"
-# df = pd.read_csv(datapath)
-# df = df[["text", "label"]]
-
-# X = df['text']
-# y=np.unique(df['label'], return_inverse=True)[1]
-
-# tokenizer = transformers.DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
-
-# X_list=X.to_list()
-# X_pt = tokenizer(X_list, padding='max_length', max_length = 512, truncation=True, return_tensors='pt')["input_ids"]
-
-# y_list=y.tolist()
-# y_pt = torch.Tensor(y_list).long()
-
-# datapath_test = "test_only_dialogue_window_1.csv"
-# df_test = pd.read_csv(datapath_test)
-# df_test = df_test[["text", "label"]]
-
-# X_test = df_test['text']
-# y_test=np.unique(df_test['label'], return_inverse=True)[1]
-
-# X_list_test=X_test.to_list()
-# X_pt_test = tokenizer(X_list_test, padding='max_length', max_length = 512, truncation=True, return_tensors='pt')["input_ids"]
-
-# y_list_test=y_test.tolist()
-# y_pt_test = torch.Tensor(y_list_test).long()
-
-# # Convert data to torch dataset
-
-# X_pt_train = X_pt
-# y_pt_train = y_pt
+    # Restructure inputs to match the expected format for RobertaForMultipleChoice
+    features = {
+        'input_ids': torch.tensor(input_ids).view(-1, 512),
+        'attention_mask': torch.tensor(attention_masks).view(-1, 512),
+        'labels': torch.tensor(labels)
+    }
+    return features
 
 
-# train_data_pt = BBCNewsDataset(X=X_pt_train, y=y_pt_train)
-# test_data_pt = BBCNewsDataset(X=X_pt_test, y=y_pt_test)
-
-# Get train and test data in form of Dataloader class
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=-1)
+    return metric.compute(predictions=predictions, references=labels)
 
 
 if __name__ == "__main__":
@@ -113,118 +63,145 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    tokenizer = transformers.DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
+    dataset = load_dataset(
+        "csv", data_files={"train": args.train_path, "test": args.test_path}
+    )
 
-    train, test = load_dataset(args.train_path, args.test_path, tokenizer)
+    model_name = "roberta-base"
+    logging_dir = args.logging_dir
 
-    train_loader_pt = DataLoader(train, batch_size=32, shuffle=True)
-    test_loader_pt = DataLoader(test, batch_size=32, shuffle=True)
+    print(f"Training {model_name} on {dataset}")
 
-    config = transformers.DistilBertConfig(dropout=0.2, attention_dropout=0.2)
-    dbert_pt = transformers.DistilBertModel.from_pretrained('distilbert-base-uncased', config=config)
+    metric = evaluate.load("accuracy")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-    # Get cpu or gpu device for training.
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using {device} device")
+    if model_name == "roberta-base":
+        tokenizer = RobertaTokenizer.from_pretrained(model_name)
+    elif model_name == "xlm-roberta-base":
+        tokenizer = XLMRobertaTokenizer.from_pretrained(model_name)
+    else:
+        tokenizer = RobertaTokenizer.from_pretrained(model_name)
+        print("Using the default roberta tokenizer, be careful")
 
-    class DistilBertClassification(nn.Module):
-        def __init__(self):
-            super(DistilBertClassification, self).__init__()
-            self.dbert = dbert_pt
-            self.dropout = nn.Dropout(p=0.2)
-            self.linear1 = nn.Linear(768,64)
-            self.ReLu = nn.ReLU()
-            self.linear2 = nn.Linear(64,5)
+    tokenized_datasets = dataset.map(preprocess_function, batched=True)
 
-        def forward(self, x):
-            x = self.dbert(input_ids=x)
-            x = x["last_hidden_state"][:,0,:]
-            x = self.dropout(x)
-            x = self.linear1(x)
-            x = self.ReLu(x)
-            logits = self.linear2(x)
-            # No need for a softmax, because it is already included in the CrossEntropyLoss
-            return logits
+    if model_name == "roberta-base":
+        model = RobertaForSequenceClassification.from_pretrained(model_name, num_labels=4).to(device)
+    elif model_name == "xlm-roberta-base":
+        model = XLMRobertaForMultipleChoice.from_pretrained(model_name).to(device)
+    else:
+        model = RobertaForMultipleChoice.from_pretrained(model_name).to(device)
+        print("Using the default roberta, be careful")
 
-    model_pt = DistilBertClassification().to(device)
+    output_dir = f"{logging_dir}/{model_name}"
 
-    for param in model_pt.dbert.parameters():
-        param.requires_grad = False
+    # Define the training arguments
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        num_train_epochs=2,
+        per_device_train_batch_size=16,
+        gradient_accumulation_steps=2,
+        warmup_ratio=0.07, 
+        weight_decay=0.01,
+        learning_rate=1e-5, 
+        logging_dir='./logs',
+        logging_steps=100,
+        save_steps=100,
+        evaluation_strategy="steps",
+        eval_steps=50,
+        report_to = "wandb"
+    )
 
-    epochs = 5
-    criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model_pt.parameters())
+    # Initialize Trainer
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_datasets['train'],
+        eval_dataset=tokenized_datasets['test'],
+        compute_metrics=compute_metrics,
+    )
 
-    from tqdm import tqdm
-    # Define the dictionary "history" that will collect key performance indicators during training
-    history = {}
-    history["epoch"]=[]
-    history["train_loss"]=[]
-    history["valid_loss"]=[]
-    history["train_accuracy"]=[]
-    history["valid_accuracy"]=[]
+    trainer.train()
 
-    from datetime import datetime
-    # Measure time for training
-    start_time = datetime.now()
+    # Path where the checkpoints are saved
+    checkpoints_path = output_dir
+    checkpoints = [os.path.join(checkpoints_path, name) \
+                    for name in os.listdir(checkpoints_path) \
+                    if name.startswith("checkpoint")]
 
-    # Loop on epochs
-    for e in range(epochs):
-        
-        # Set mode in train mode
-        model_pt.train()
-        
-        train_loss = 0.0
-        train_accuracy = []
-        
-        # Loop on batches
-        for X, y in tqdm(train_loader_pt):
-            # Get prediction & loss
-            prediction = model_pt(X.to(device))
-            loss = criterion(prediction, y.to(device))
-            
-            # Adjust the parameters of the model
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            
-            train_loss += loss.item()
-            
-            prediction_index = prediction.argmax(axis=1)
-            accuracy = (prediction_index==y.to(device))
-            train_accuracy += accuracy
-        
-        train_accuracy = (sum(train_accuracy) / len(train_accuracy)).item()
-        
-        # Calculate the loss on the test data after each epoch
-        # Set mode to evaluation (by opposition to training)
-        model_pt.eval()
-        valid_loss = 0.0
-        valid_accuracy = []
-        for X, y in tqdm(test_loader_pt):
-            
-            prediction = model_pt(X.to(device))
-            loss = criterion(prediction, y.to(device))
+    # Placeholder for the best performance
+    best_performance = 0.0
+    best_checkpoint = None
 
-            valid_loss += loss.item()
-            
-            prediction_index = prediction.argmax(axis=1)
-            accuracy = (prediction_index==y.to(device))
-            valid_accuracy += accuracy
-        valid_accuracy = (sum(valid_accuracy) / len(valid_accuracy)).item()
-        
-        # Populate history
-        history["epoch"].append(e+1)
-        history["train_loss"].append(train_loss / len(train_loader_pt))
-        history["valid_loss"].append(valid_loss / len(test_loader_pt))
-        history["train_accuracy"].append(train_accuracy)
-        history["valid_accuracy"].append(valid_accuracy)    
-            
-        print(f'Epoch {e+1} \t\t Training Loss: {train_loss / len(train_loader_pt) :10.3f} \t\t Validation Loss: {valid_loss / len(test_loader_pt) :10.3f}')
-        print(f'\t\t Training Accuracy: {train_accuracy :10.3%} \t\t Validation Accuracy: {valid_accuracy :10.3%}')
-        
-    # Measure time for training
-    end_time = datetime.now()
-    training_time_pt = (end_time - start_time).total_seconds()
+    for checkpoint in checkpoints:
+        # Load the model from checkpoint
+        if model_name == "roberta-base":
+            model = RobertaForSequenceClassification.from_pretrained(checkpoint, num_labels=4).to(device)
+        elif model_name == "xlm-roberta-base":
+            model = XLMRobertaForMultipleChoice.from_pretrained(checkpoint).to(device)
+        else:
+            model = RobertaForMultipleChoice.from_pretrained(checkpoint).to(device)
+            print("Using the default roberta, be careful")
+
+        # Initialize Trainer
+        trainer = Trainer(
+            model=model,
+            args=TrainingArguments(
+                output_dir=output_dir,
+                per_device_eval_batch_size=1,  # Adjust as necessary
+            ),
+            compute_metrics=compute_metrics,
+        )
+
+        # Evaluate the model
+        eval_results = trainer.evaluate(tokenized_datasets['test'])
+
+        # Assuming 'accuracy' is your metric of interest
+        print(eval_results)
+        performance = eval_results["eval_accuracy"]
+
+        # Update the best checkpoint if current model is better
+        if performance > best_performance:
+            best_performance = performance
+            best_checkpoint = checkpoint
+
+    print(f"Best checkpoint: {best_checkpoint} with Eval Loss: {best_performance}")
+
+    if best_checkpoint:
+        print(f"Best checkpoint: {best_checkpoint} with Eval Loss: {best_performance}")
+
+        # Load the best model
+        if model_name == "roberta-base":
+            best_model = RobertaForSequenceClassification.from_pretrained(checkpoint, num_labels=4).to(device)
+        elif model_name == "xlm-roberta-base":
+            best_model = XLMRobertaForMultipleChoice.from_pretrained(best_checkpoint).to(device)
+        else:
+            best_model = RobertaForMultipleChoice.from_pretrained(best_checkpoint).to(device)
+            print("Using the default roberta, be careful")
+
+        # Directly save the best model to the desired directory
+        best_model.save_pretrained(f"{output_dir}/best_{best_checkpoint}")
+
+        # If you want to save the tokenizer as well
+        tokenizer.save_pretrained(f"{output_dir}/best_{best_checkpoint}")
+
+        # Optional: Evaluate the best model again for confirmation, using the Trainer
+        trainer = Trainer(
+            model=best_model,
+            args=TrainingArguments(
+                output_dir=f'./{output_dir}/best',  # Ensure this matches where you're saving the model
+                per_device_eval_batch_size=8,
+            ),
+            compute_metrics=compute_metrics,
+        )
+
+        eval_results = trainer.evaluate(tokenized_datasets['test'])
+        print("Final Evaluation on Best Model:", eval_results)
+    else:
+        print("No best checkpoint identified.")
+
+
+
+
 
