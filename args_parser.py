@@ -28,6 +28,12 @@ def add_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--logging_dir", type=str, default="./logs/default_logs"
     )
+    parser.add_argument(
+        "--run_name", type=str, default="default_run"
+    )
+    parser.add_argument(
+        "--model_name", type=str, default="roberta-base"
+    )
     # parser.add_argument('--save_file',
     #                         type=str,
     #                         default="outputs.txt")

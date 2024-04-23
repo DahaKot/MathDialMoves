@@ -11,16 +11,16 @@
 
 echo "Start."
 
-WINDOW_SIZE=3
+WINDOW_SIZE=5
 
 python data_preparation.py \
 --data_path="./mathdial/data/train.csv" \
---save_file="./data/train_true_solution_window_3.csv" \
+--save_file="./data/train_true_solution_window_5.csv" \
 --window_size=$WINDOW_SIZE
 
 python data_preparation.py \
 --data_path="./mathdial/data/test.csv" \
---save_file="./data/test_true_solution_window_3.csv" \
+--save_file="./data/test_true_solution_window_5.csv" \
 --window_size=$WINDOW_SIZE
 
 

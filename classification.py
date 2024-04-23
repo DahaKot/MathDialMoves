@@ -2,13 +2,16 @@ import os
 import random
 
 import evaluate
+import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import torch
 from datasets import load_dataset
+from sklearn.metrics import confusion_matrix
 from transformers import (RobertaForMultipleChoice,
                           RobertaForSequenceClassification, RobertaTokenizer,
-                          Trainer, TrainingArguments,
-                          XLMRobertaForMultipleChoice, XLMRobertaTokenizer)
+                          Trainer, TrainingArguments, AutoTokenizer,
+                          ElectraForSequenceClassification, ElectraTokenizer, MistralForSequenceClassification)
 
 from args_parser import get_args
 
@@ -41,7 +44,7 @@ def preprocess_function(examples):
     attention_masks = [x['attention_mask'] for x in multiple_choices_inputs]
 
     labels = np.unique(labels, return_inverse=True)[1]
-    print(type(torch.tensor(attention_masks).view(-1, 512)), torch.tensor(attention_masks).view(-1, 512).dtype)
+    print("Labels are: ", np.unique(labels, return_inverse=True)[0])
 
     # Restructure inputs to match the expected format for RobertaForMultipleChoice
     features = {
@@ -63,12 +66,13 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    dataset = load_dataset(
-        "csv", data_files={"train": args.train_path, "test": args.test_path}
-    )
+    dataset = load_dataset("csv", data_files=
+            {"train": f"./data/train_{args.run_name}.csv",
+             "test": f"./data/test_{args.run_name}.csv"
+    })
 
-    model_name = "roberta-base"
-    logging_dir = args.logging_dir
+    model_name = args.model_name
+    logging_dir = f"./logs/{args.run_name}"
 
     print(f"Training {model_name} on {dataset}")
 
@@ -78,18 +82,23 @@ if __name__ == "__main__":
 
     if model_name == "roberta-base":
         tokenizer = RobertaTokenizer.from_pretrained(model_name)
-    elif model_name == "xlm-roberta-base":
-        tokenizer = XLMRobertaTokenizer.from_pretrained(model_name)
+    elif model_name == "electra":
+        tokenizer = ElectraTokenizer.from_pretrained("bhadresh-savani/electra-base-emotion")
+    elif model_name == "mistral":
+        tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
     else:
         tokenizer = RobertaTokenizer.from_pretrained(model_name)
         print("Using the default roberta tokenizer, be careful")
 
     tokenized_datasets = dataset.map(preprocess_function, batched=True)
+    tokenized_datasets = tokenized_datasets.remove_columns(["index", "text", "label"])
 
     if model_name == "roberta-base":
         model = RobertaForSequenceClassification.from_pretrained(model_name, num_labels=4).to(device)
-    elif model_name == "xlm-roberta-base":
-        model = XLMRobertaForMultipleChoice.from_pretrained(model_name).to(device)
+    elif model_name == "electra":
+        model = ElectraForSequenceClassification.from_pretrained(model_name).to(device)
+    elif model_name == "mistral":
+        model = MistralForSequenceClassification.from_pretrained(model_name).to(device)
     else:
         model = RobertaForMultipleChoice.from_pretrained(model_name).to(device)
         print("Using the default roberta, be careful")
@@ -98,8 +107,8 @@ if __name__ == "__main__":
 
     # Define the training arguments
     training_args = TrainingArguments(
-        output_dir=output_dir,
-        num_train_epochs=2,
+        output_dir=logging_dir,
+        num_train_epochs=2.5,
         per_device_train_batch_size=16,
         gradient_accumulation_steps=2,
         warmup_ratio=0.07, 
@@ -110,7 +119,9 @@ if __name__ == "__main__":
         save_steps=100,
         evaluation_strategy="steps",
         eval_steps=50,
-        report_to = "wandb"
+        report_to="wandb",
+        run_name=args.run_name,
+        load_best_model_at_end=True
     )
 
     # Initialize Trainer
@@ -124,84 +135,19 @@ if __name__ == "__main__":
 
     trainer.train()
 
-    # Path where the checkpoints are saved
-    checkpoints_path = output_dir
-    checkpoints = [os.path.join(checkpoints_path, name) \
-                    for name in os.listdir(checkpoints_path) \
-                    if name.startswith("checkpoint")]
+    test_predictions = model(
+        torch.tensor(tokenized_datasets['test']["input_ids"]).to(device), 
+        torch.tensor(tokenized_datasets["test"]["attention_mask"].to(device))
+    )
+    test_predictions = np.argmax(test_predictions.logits, axis=1)
+    # Plot confusion matrix
+    cm = confusion_matrix(tokenized_datasets['test']["label"], test_predictions)
+    class_names = ["focus", "telling", "probing", "general"]
 
-    # Placeholder for the best performance
-    best_performance = 0.0
-    best_checkpoint = None
-
-    for checkpoint in checkpoints:
-        # Load the model from checkpoint
-        if model_name == "roberta-base":
-            model = RobertaForSequenceClassification.from_pretrained(checkpoint, num_labels=4).to(device)
-        elif model_name == "xlm-roberta-base":
-            model = XLMRobertaForMultipleChoice.from_pretrained(checkpoint).to(device)
-        else:
-            model = RobertaForMultipleChoice.from_pretrained(checkpoint).to(device)
-            print("Using the default roberta, be careful")
-
-        # Initialize Trainer
-        trainer = Trainer(
-            model=model,
-            args=TrainingArguments(
-                output_dir=output_dir,
-                per_device_eval_batch_size=1,  # Adjust as necessary
-            ),
-            compute_metrics=compute_metrics,
-        )
-
-        # Evaluate the model
-        eval_results = trainer.evaluate(tokenized_datasets['test'])
-
-        # Assuming 'accuracy' is your metric of interest
-        print(eval_results)
-        performance = eval_results["eval_accuracy"]
-
-        # Update the best checkpoint if current model is better
-        if performance > best_performance:
-            best_performance = performance
-            best_checkpoint = checkpoint
-
-    print(f"Best checkpoint: {best_checkpoint} with Eval Loss: {best_performance}")
-
-    if best_checkpoint:
-        print(f"Best checkpoint: {best_checkpoint} with Eval Loss: {best_performance}")
-
-        # Load the best model
-        if model_name == "roberta-base":
-            best_model = RobertaForSequenceClassification.from_pretrained(checkpoint, num_labels=4).to(device)
-        elif model_name == "xlm-roberta-base":
-            best_model = XLMRobertaForMultipleChoice.from_pretrained(best_checkpoint).to(device)
-        else:
-            best_model = RobertaForMultipleChoice.from_pretrained(best_checkpoint).to(device)
-            print("Using the default roberta, be careful")
-
-        # Directly save the best model to the desired directory
-        best_model.save_pretrained(f"{output_dir}/best_{best_checkpoint}")
-
-        # If you want to save the tokenizer as well
-        tokenizer.save_pretrained(f"{output_dir}/best_{best_checkpoint}")
-
-        # Optional: Evaluate the best model again for confirmation, using the Trainer
-        trainer = Trainer(
-            model=best_model,
-            args=TrainingArguments(
-                output_dir=f'./{output_dir}/best',  # Ensure this matches where you're saving the model
-                per_device_eval_batch_size=8,
-            ),
-            compute_metrics=compute_metrics,
-        )
-
-        eval_results = trainer.evaluate(tokenized_datasets['test'])
-        print("Final Evaluation on Best Model:", eval_results)
-    else:
-        print("No best checkpoint identified.")
-
-
-
-
-
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=class_names, yticklabels=class_names)
+    plt.xlabel("Predicted Labels")
+    plt.ylabel("True Labels")
+    plt.title("Confusion Matrix")
+    # plt.show()
+    plt.savefig("window_1_open_ai.png")
