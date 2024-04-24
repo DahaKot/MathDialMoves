@@ -23,15 +23,18 @@ set_seed(1)  # You can choose any seed value
 strategies = {"probing": 0, "generic": 0, "focus": 0, "telling": 0}
 # the prompt is definetely smth that should be experimented with
 PROMPT = """
-Problem statement:
-{problem}
-This is the correct solution of the problem:
-{correct_solution}
-This is the student solution of the problem:
-{student_solution}
-The following is a fragment of a conversation between a student and a teacher discussing the student solution:
 {conversation}
 """
+# PROMPT = """
+# # Problem statement:
+# # {problem}
+# This is the correct solution of the problem:
+# {correct_solution}
+# This is the student solution of the problem:
+# {student_solution}
+# The following is a fragment of a conversation between a student and a teacher discussing the student solution:
+# {conversation}
+# """
 
 def cut_conversation(data):
     conversations = data["conversation"]
@@ -104,10 +107,10 @@ def generate_data(data, window_size):
 
                     start = max(0, j - window_size) #for shorter windows
                     text = PROMPT.format( \
-                        problem=question, \
-                        correct_solution=ground_truth_solution, \
-                        student_solution=incorrect_solution, \
-                        conversation="\n".join(cut_replics[start:j]) \
+                        # problem=question, \
+                        # correct_solution=ground_truth_solution, \
+                        # student_solution=incorrect_solution, \
+                        conversation="\n".join(cut_replics[j:j + 1]) \
                     )
                     
                     new_data.append([index, text, label])

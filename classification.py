@@ -96,7 +96,7 @@ if __name__ == "__main__":
     if model_name == "roberta-base":
         model = RobertaForSequenceClassification.from_pretrained(model_name, num_labels=4).to(device)
     elif model_name == "electra":
-        model = ElectraForSequenceClassification.from_pretrained(model_name).to(device)
+        model = ElectraForSequenceClassification.from_pretrained("bhadresh-savani/electra-base-emotion").to(device)
     elif model_name == "mistral":
         model = MistralForSequenceClassification.from_pretrained(model_name).to(device)
     else:
