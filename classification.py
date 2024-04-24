@@ -100,14 +100,14 @@ if __name__ == "__main__":
     elif model_name == "mistral":
         model = MistralForSequenceClassification.from_pretrained(model_name).to(device)
     else:
-        model = RobertaForMultipleChoice.from_pretrained(model_name).to(device)
+        model = RobertaForSequenceClassification.from_pretrained(model_name).to(device)
         print("Using the default roberta, be careful")
 
     output_dir = f"{logging_dir}/{model_name}"
 
     # Define the training arguments
     training_args = TrainingArguments(
-        output_dir=logging_dir,
+        output_dir=output_dir,
         num_train_epochs=2.5,
         per_device_train_batch_size=16,
         gradient_accumulation_steps=2,
@@ -116,7 +116,7 @@ if __name__ == "__main__":
         learning_rate=1e-5, 
         logging_dir='./logs',
         logging_steps=100,
-        save_steps=100,
+        save_steps=500,
         evaluation_strategy="steps",
         eval_steps=50,
         report_to="wandb",
@@ -135,13 +135,11 @@ if __name__ == "__main__":
 
     trainer.train()
 
-    test_predictions = model(
-        torch.tensor(tokenized_datasets['test']["input_ids"]).to(device), 
-        torch.tensor(tokenized_datasets["test"]["attention_mask"].to(device))
-    )
-    test_predictions = np.argmax(test_predictions.logits, axis=1)
+    test_predictions = trainer.predict(tokenized_datasets['test'])
+    test_predictions = test_predictions.predictions
+    test_predictions = np.argmax(test_predictions, axis=1)
     # Plot confusion matrix
-    cm = confusion_matrix(tokenized_datasets['test']["label"], test_predictions)
+    cm = confusion_matrix(tokenized_datasets['test']["labels"], test_predictions)
     class_names = ["focus", "telling", "probing", "general"]
 
     plt.figure(figsize=(8, 6))
@@ -150,4 +148,4 @@ if __name__ == "__main__":
     plt.ylabel("True Labels")
     plt.title("Confusion Matrix")
     # plt.show()
-    plt.savefig("window_1_open_ai.png")
+    plt.savefig(f"{args.run_name}_{model_name}.png")
