@@ -22,9 +22,10 @@ set_seed(1)  # You can choose any seed value
 
 strategies = {"probing": 0, "generic": 0, "focus": 0, "telling": 0}
 # the prompt is definetely smth that should be experimented with
-PROMPT = """
-{conversation}
-"""
+# PROMPT = """
+# The following is a fragment of a conversation between a student and a teacher. Classify the last utterance.
+# {conversation}
+# """
 # PROMPT = """
 # # Problem statement:
 # # {problem}
@@ -35,6 +36,16 @@ PROMPT = """
 # The following is a fragment of a conversation between a student and a teacher discussing the student solution:
 # {conversation}
 # """
+PROMPT = """A tutor and a student work together to solve the following math word problem. 
+The tutor can use different pedagogical strategies:
+0. Focus suggests seeking strategy, guiding a student or recalling relevant information.
+1. Probing includes asking for explanation, seeking self correction, perturbing the question and seeking world knowledge.
+2. Telling is revealing strategy and revealing an answer.
+3. Generic utterances are greetings, general inquiries and farewells.
+The following is a conversation with a tutor. The tutor is polite, helpful, professional, on topic, and factually correct.
+{conversation}
+Which strategy of (0: focus, 1: probing, 2: telling, 3:generic) does the last utterance use?
+"""
 
 def cut_conversation(data):
     conversations = data["conversation"]
@@ -67,6 +78,7 @@ def cut_conversation(data):
 
             # cut out the strategy name from the dialogue 
             variable_line = variable_line[:a - 1] + variable_line[b + 1:]
+            # min_index = b + 1
 
         # now for each dialogue we have a version without strategies and a
         # separate array of strategies used
@@ -107,11 +119,12 @@ def generate_data(data, window_size):
 
                     start = max(0, j - window_size) #for shorter windows
                     text = PROMPT.format( \
-                        # problem=question, \
-                        # correct_solution=ground_truth_solution, \
+                        problem=question, \
+                        ground_truth=ground_truth_solution, \
                         # student_solution=incorrect_solution, \
-                        conversation="\n".join(cut_replics[j:j + 1]) \
+                        conversation="\n".join(cut_replics[j:j+1]) \
                     )
+                    # +1 here includes the last replic!!!
                     
                     new_data.append([index, text, label])
                     index += 1

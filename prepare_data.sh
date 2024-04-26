@@ -15,12 +15,12 @@ WINDOW_SIZE=3
 
 python data_preparation.py \
 --data_path="./mathdial/data/train.csv" \
---save_file="./data/train_replics.csv" \
+--save_file="./data/train_last_replics_only_label_description_better.csv" \
 --window_size=$WINDOW_SIZE
 
 python data_preparation.py \
 --data_path="./mathdial/data/test.csv" \
---save_file="./data/test_replics.csv" \
+--save_file="./data/test_last_replics_only_label_description_better.csv" \
 --window_size=$WINDOW_SIZE
 
 
