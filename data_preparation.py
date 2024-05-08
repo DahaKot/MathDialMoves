@@ -12,13 +12,12 @@ def set_seed(seed_value=42):
     """Set seed for reproducibility."""
     np.random.seed(seed_value)
     torch.manual_seed(seed_value)
-    torch.cuda.manual_seed_all(seed_value)  # If using CUDA
+    torch.cuda.manual_seed_all(seed_value)
     random.seed(seed_value)
     # Ensures that CUDA operations are deterministic
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-set_seed(1)  # You can choose any seed value
 
 strategies = {"probing": 0, "generic": 0, "focus": 0, "telling": 0}
 # the prompt is definetely smth that should be experimented with
@@ -131,10 +130,13 @@ def generate_data(data, window_size):
 
         length_in_teacher_replics.append(teacher_replics_count)
 
-    return pd.DataFrame(new_data, columns=header), length_in_replics, length_in_teacher_replics
+    return pd.DataFrame(new_data, columns=header), \
+        length_in_replics, length_in_teacher_replics
 
 
 if __name__ == "__main__":
+    set_seed(1)  # You can choose any seed value
+    
     args = get_args()
 
     data = pd.read_csv(args.data_path)
@@ -143,5 +145,8 @@ if __name__ == "__main__":
     new_data, length_in_replics, length_in_teacher_replics = generate_data(
         data, args.window_size
     )
+    
+    print(f"Strategy stats: {strategies_stats}")
+    print(f"Utterances per dialogue: {length_in_replics}. Teacher utterances per dialogue: {length_in_teacher_replics}")
 
     new_data.to_csv(args.save_file, index=False)
