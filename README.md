@@ -17,6 +17,3 @@ See args_parser.py for the script arguments. The most important argument is the 
 - to run the classification on the prepared data - run classification.py. Classification script will finetune your model and plot a confusion matrix
 - to generate teacher utterances - use generation.ipynb. The evaluation is in the separate notebook - generation_evaluation.ipynb
 
-# Disclaimer
-
-The work on the repository continues, so consult the actual README file in the repo. At the moment there is a gap between GitHub repository and actual code due to some GitHub problems (several commits contain API key that should not be public), so all the code at the moment is avalable at: https://drive.google.com/drive/folders/1X4Lk8BK-VgA-Y8Q6CfPbmm7TKccpRDjG?usp=sharing.
