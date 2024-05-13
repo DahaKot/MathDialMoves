@@ -25,6 +25,12 @@ def add_args(parser: argparse.ArgumentParser):
         "--test_path", type=str, default="./data/test_window_1.csv"
     )
     parser.add_argument(
+        "--teacher_answers", type=str, default="./data/test_replics.csv"
+    )
+    parser.add_argument(
+        "--generated_sentences", type=str, default="predicted_answers_focus_label.txt"
+    )
+    parser.add_argument(
         "--logging_dir", type=str, default="./logs/default_logs"
     )
     parser.add_argument(
